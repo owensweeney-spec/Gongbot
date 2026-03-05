@@ -83,11 +83,12 @@ def get_hubspot_meetings(since=None):
     
     results = response.json().get("results", [])
     
-    # Filter to meetings created since last check (and not archived)
+    # Filter to meetings created since last check
+    # Include archived meetings since HubSpot may auto-archive them
     if since:
         # Normalize dates for comparison (handle Z and +00:00)
         since_normalized = since.replace('Z', '+00:00')
-        results = [r for r in results if not r.get("archived", False) and 
+        results = [r for r in results if 
                    r.get("properties", {}).get("hs_createdate", "").replace('Z', '+00:00') > since_normalized]
     
     return results
