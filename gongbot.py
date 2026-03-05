@@ -68,7 +68,7 @@ def get_hubspot_meetings(since=None):
     """Fetch new meetings from HubSpot."""
     url = f"https://api.hubapi.com/crm/v3/objects/{HUBSPOT_OBJECT_ID}"
     params = {
-        "limit": 50,
+        "limit": 100,
         "properties": "booking_channel,company,contact_email,contact_title,hs_appointment_name,hs_appointment_start,hs_appointment_end,hs_createdate,hs_lastmodifieddate,hs_created_by_user_id",
         "archived": "true"  # Include archived meetings
     }
@@ -78,10 +78,25 @@ def get_hubspot_meetings(since=None):
         "Content-Type": "application/json"
     }
     
-    response = requests.get(url, headers=headers, params=params)
-    response.raise_for_status()
+    all_results = []
     
-    results = response.json().get("results", [])
+    while url:
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        
+        data = response.json()
+        all_results.extend(data.get("results", []))
+        
+        # Check for next page
+        paging = data.get("paging", {})
+        next_page = paging.get("next", {})
+        if next_page:
+            url = next_page.get("link")
+            params = {}  # Params are in the URL for next page
+        else:
+            url = None
+    
+    results = all_results
     
     # Filter to meetings created since last check
     # Include archived meetings since HubSpot may auto-archive them
