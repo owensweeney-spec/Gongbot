@@ -51,7 +51,11 @@ def load_last_check():
     if Path(STATE_FILE).exists():
         with open(STATE_FILE, "r") as f:
             return json.load(f)
-    return {"last_check": None, "processed_ids": []}
+    # Default: only look for meetings from the last 24 hours on first run
+    # This avoids processing old meetings when redeploying
+    from datetime import timedelta
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    return {"last_check": yesterday, "processed_ids": []}
 
 
 def save_last_check(data):
