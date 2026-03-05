@@ -66,19 +66,19 @@ def save_last_check(data):
 
 def get_hubspot_meetings(since=None):
     """Fetch new meetings from HubSpot."""
-    url = f"https://api.hubapi.com/crm/v3/objects/{HUBSPOT_OBJECT_ID}"
-    params = {
-        "limit": 100,
-        "properties": "booking_channel,company,contact_email,contact_title,hs_appointment_name,hs_appointment_start,hs_appointment_end,hs_createdate,hs_lastmodifieddate,hs_created_by_user_id",
-        "archived": "true"  # Include archived meetings
-    }
-    
     headers = {
         "Authorization": f"Bearer {HUBSPOT_KEY}",
         "Content-Type": "application/json"
     }
     
     all_results = []
+    
+    # Fetch non-archived meetings
+    url = f"https://api.hubapi.com/crm/v3/objects/{HUBSPOT_OBJECT_ID}"
+    params = {
+        "limit": 100,
+        "properties": "booking_channel,company,contact_email,contact_title,hs_appointment_name,hs_appointment_start,hs_appointment_end,hs_createdate,hs_lastmodifieddate,hs_created_by_user_id"
+    }
     
     while url:
         response = requests.get(url, headers=headers, params=params)
@@ -92,14 +92,40 @@ def get_hubspot_meetings(since=None):
         next_page = paging.get("next", {})
         if next_page:
             url = next_page.get("link")
-            params = {}  # Params are in the URL for next page
+            params = {}
+        else:
+            url = None
+    
+    # Also fetch archived meetings (HubSpot API quirk: need separate call)
+    url = f"https://api.hubapi.com/crm/v3/objects/{HUBSPOT_OBJECT_ID}"
+    params = {
+        "limit": 100,
+        "properties": "booking_channel,company,contact_email,contact_title,hs_appointment_name,hs_appointment_start,hs_appointment_end,hs_createdate,hs_lastmodifieddate,hs_created_by_user_id",
+        "archived": "true"
+    }
+    
+    while url:
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        
+        data = response.json()
+        # Add archived property to each result
+        for result in data.get("results", []):
+            result["archived"] = True
+        all_results.extend(data.get("results", []))
+        
+        # Check for next page
+        paging = data.get("paging", {})
+        next_page = paging.get("next", {})
+        if next_page:
+            url = next_page.get("link")
+            params = {}
         else:
             url = None
     
     results = all_results
     
     # Filter to meetings created since last check
-    # Include archived meetings since HubSpot may auto-archive them
     if since:
         # Normalize dates for comparison (handle Z and +00:00)
         since_normalized = since.replace('Z', '+00:00')
