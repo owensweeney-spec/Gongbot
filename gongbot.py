@@ -69,7 +69,8 @@ def get_hubspot_meetings(since=None):
     url = f"https://api.hubapi.com/crm/v3/objects/{HUBSPOT_OBJECT_ID}"
     params = {
         "limit": 50,
-        "properties": "booking_channel,company,contact_email,contact_title,hs_appointment_name,hs_appointment_start,hs_appointment_end,hs_createdate,hs_lastmodifieddate,hs_created_by_user_id"
+        "properties": "booking_channel,company,contact_email,contact_title,hs_appointment_name,hs_appointment_start,hs_appointment_end,hs_createdate,hs_lastmodifieddate,hs_created_by_user_id",
+        "archived": "true"  # Include archived meetings
     }
     
     headers = {
@@ -82,9 +83,12 @@ def get_hubspot_meetings(since=None):
     
     results = response.json().get("results", [])
     
-    # Filter to meetings created since last check
+    # Filter to meetings created since last check (and not archived)
     if since:
-        results = [r for r in results if r.get("properties", {}).get("hs_createdate", "") > since]
+        # Normalize dates for comparison (handle Z and +00:00)
+        since_normalized = since.replace('Z', '+00:00')
+        results = [r for r in results if not r.get("archived", False) and 
+                   r.get("properties", {}).get("hs_createdate", "").replace('Z', '+00:00') > since_normalized]
     
     return results
 
