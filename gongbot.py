@@ -420,9 +420,24 @@ def main():
             new_meetings = []
             for m in meetings:
                 meeting_id = m.get("id")
+                props = m.get("properties", {})
+                created = props.get("hs_createdate", "")
+                
                 # Skip if already in local processed_ids
                 if meeting_id in processed_ids:
                     continue
+                
+                # Skip meetings older than 24 hours (safety net for state resets)
+                from datetime import datetime, timezone, timedelta
+                try:
+                    created_dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
+                    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+                    if created_dt < cutoff:
+                        logger.info(f"Skipping {props.get('company')} - older than 24 hours")
+                        continue
+                except:
+                    pass
+                
                 # Skip if already has a Notion page
                 if is_meeting_processed(m):
                     processed_ids.append(meeting_id)  # Add to local state too
