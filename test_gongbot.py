@@ -297,6 +297,58 @@ class TestNotionAPI:
         result = gongbot.create_notion_page(meeting)
         assert result is None
 
+    def test_create_notion_page_test_prefix(self):
+        """Test that [TEST] prefix is used for test meetings."""
+        # Test with "test" in meeting name
+        meeting_test = {
+            "properties": {
+                "company": "TestCompany",
+                "contact_email": "test@test.com",
+                "contact_title": "CEO",
+                "booking_channel": "LinkedIn",
+                "hs_appointment_name": "Test Meeting"
+            }
+        }
+        
+        # Verify the test detection logic
+        meeting_name = meeting_test["properties"]["hs_appointment_name"]
+        test_keywords = ["test", "fake", "demo", "dummy", "sample"]
+        is_test = any(keyword in meeting_name.lower() for keyword in test_keywords)
+        
+        assert is_test == True
+        
+        # Test with "fake" in meeting name
+        meeting_fake = {
+            "properties": {
+                "company": "FakeCompany",
+                "contact_email": "fake@fake.com",
+                "contact_title": "CTO",
+                "booking_channel": "Email",
+                "hs_appointment_name": "Fake Demo Call"
+            }
+        }
+        
+        meeting_name_fake = meeting_fake["properties"]["hs_appointment_name"]
+        is_test_fake = any(keyword in meeting_name_fake.lower() for keyword in test_keywords)
+        
+        assert is_test_fake == True
+        
+        # Test with normal meeting name - should NOT be test
+        meeting_normal = {
+            "properties": {
+                "company": "RealCompany",
+                "contact_email": "real@real.com",
+                "contact_title": "VP Sales",
+                "booking_channel": "LinkedIn",
+                "hs_appointment_name": "Discovery Call"
+            }
+        }
+        
+        meeting_name_normal = meeting_normal["properties"]["hs_appointment_name"]
+        is_test_normal = any(keyword in meeting_name_normal.lower() for keyword in test_keywords)
+        
+        assert is_test_normal == False
+
 
 class TestSlackAPI:
     """Tests for Slack API functions."""

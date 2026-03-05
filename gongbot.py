@@ -229,8 +229,15 @@ def create_notion_page(meeting_data):
     # Determine if enterprise (simplified - could check employee count)
     is_enterprise = True  # Assume enterprise unless SMB
     
-    # Create page title with [DRAFT] prefix
-    title = f"[DRAFT] L1 {company} <> OpenHands"
+    # Detect test meetings by keywords in meeting name
+    test_keywords = ["test", "fake", "demo", "dummy", "sample"]
+    is_test_meeting = any(keyword in meeting_name.lower() for keyword in test_keywords)
+    
+    # Create page title with [TEST] or [DRAFT] prefix
+    if is_test_meeting:
+        title = f"[TEST] L1 {company} <> OpenHands"
+    else:
+        title = f"[DRAFT] L1 {company} <> OpenHands"
     
     url = "https://api.notion.com/v1/pages"
     headers = {
