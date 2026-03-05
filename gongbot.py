@@ -8,7 +8,7 @@ import os
 import json
 import time
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import requests
@@ -32,7 +32,11 @@ SLACK_CHANNEL = "gong"
 
 # Polling
 POLL_INTERVAL_SECONDS = 300  # 5 minutes
-STATE_FILE = "/tmp/gongbot_last_check.json"
+
+# State file - use /tmp for ephemeral, or current dir for persistent
+# On Render, /tmp persists between requests but not between deploys
+# Use the current working directory for better persistence
+STATE_FILE = os.environ.get("STATE_FILE", "gongbot_state.json")
 
 # Logging
 logging.basicConfig(
@@ -50,10 +54,12 @@ def load_last_check():
     """Load the last check timestamp from file."""
     if Path(STATE_FILE).exists():
         with open(STATE_FILE, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+            # Verify the file has valid data
+            if data.get("last_check"):
+                return data
     # Default: only look for meetings from the last 24 hours on first run
     # This avoids processing old meetings when redeploying
-    from datetime import timedelta
     yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
     return {"last_check": yesterday, "processed_ids": []}
 
@@ -162,6 +168,46 @@ def research_company(company_name):
         "needs_research": True,
         "company": company_name
     }
+
+
+
+def is_meeting_processed(meeting):
+    """Check if meeting was already processed by looking for a Notion page with similar name."""
+    if not NOTION_KEY or not NOTION_PARENT_ID:
+        return False
+    
+    props = meeting.get("properties", {})
+    company = props.get("company", "")
+    
+    if not company:
+        return False
+    
+    # Search Notion for a page with this company name
+    url = "https://api.notion.com/v1/search"
+    headers = {
+        "Authorization": f"Bearer {NOTION_KEY}",
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "query": company,
+        "filter": {"property": "object", "value": "page"},
+        "page_size": 5
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code == 200:
+            results = response.json().get("results", [])
+            # Check if any page is in our parent database
+            for page in results:
+                if page.get("parent", {}).get("database_id") == NOTION_PARENT_ID:
+                    logger.info(f"Found existing Notion page for {company}, skipping")
+                    return True
+    except Exception as e:
+        logger.warning(f"Error checking Notion: {e}")
+    
+    return False
 
 
 def create_notion_page(meeting_data):
@@ -364,8 +410,18 @@ def main():
             # Get new meetings
             meetings = get_hubspot_meetings(since=last_check)
             
-            # Filter out already processed
-            new_meetings = [m for m in meetings if m.get("id") not in processed_ids]
+            # Filter out already processed (check both local state and Notion)
+            new_meetings = []
+            for m in meetings:
+                meeting_id = m.get("id")
+                # Skip if already in local processed_ids
+                if meeting_id in processed_ids:
+                    continue
+                # Skip if already has a Notion page
+                if is_meeting_processed(m):
+                    processed_ids.append(meeting_id)  # Add to local state too
+                    continue
+                new_meetings.append(m)
             
             if new_meetings:
                 logger.info(f"Found {len(new_meetings)} new meeting(s)!")
@@ -392,4 +448,24 @@ def main():
 
 
 if __name__ == "__main__":
+    # Start a simple HTTP server to satisfy Render's port check
+    # This allows the bot to run as a web service while doing background polling
+    import threading
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    
+    class QuietHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'GongBot is running')
+        def log_message(self, format, *args):
+            pass  # Suppress logging
+    
+    # Start HTTP server in background thread
+    server = HTTPServer(('0.0.0.0', int(os.environ.get('PORT', 10000))), QuietHandler)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    
+    # Run the main bot loop
     main()
