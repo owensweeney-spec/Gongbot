@@ -28,7 +28,7 @@ NOTION_PARENT_ID = os.environ.get("NOTION_PARENT_ID", "")  # L1-Call-Notes-Repo
 
 # Slack
 SLACK_KEY = os.environ.get("SLACK_KEY", "")
-SLACK_CHANNEL = "gong"
+SLACK_CHANNEL = "test-gong"
 
 # Polling
 POLL_INTERVAL_SECONDS = 300  # 5 minutes
@@ -225,8 +225,8 @@ def create_notion_page(meeting_data):
     # Determine if enterprise (simplified - could check employee count)
     is_enterprise = True  # Assume enterprise unless SMB
     
-    # Create page title
-    title = f"L1 {company} <> OpenHands"
+    # Create page title with [DRAFT] prefix
+    title = f"[DRAFT] L1 {company} <> OpenHands"
     
     url = "https://api.notion.com/v1/pages"
     headers = {
@@ -321,8 +321,56 @@ def create_notion_page(meeting_data):
         return None
 
 
+def get_ae_assignment(company_name, company_hq=None):
+    """Assign AE based on company HQ location.
+    
+    Clarke: East + Northeast + Southeast + Midwest + DC + International (Europe/Brazil)
+    Cliff: West + Southwest + Plains + Mountain + Asia
+    """
+    # If we have HQ location, use it for routing
+    if company_hq:
+        hq_lower = company_hq.lower()
+        
+        # Special case: DC is Clarke territory (not to be confused with "dc" in other words)
+        if 'washington' in hq_lower and ('dc' in hq_lower or hq_lower.endswith('dc')):
+            return "clarke"
+        
+        # Cliff's territory (West + Southwest + Plains + Mountain + Asia)
+        cliff_states = {
+            'ak': 'alaska', 'al': 'alabama', 'ar': 'arkansas', 'az': 'arizona', 
+            'ca': 'california', 'co': 'colorado', 'hi': 'hawaii', 'ia': 'iowa', 
+            'id': 'idaho', 'ks': 'kansas', 'la': 'louisiana', 'mo': 'missouri', 
+            'ms': 'mississippi', 'mt': 'montana', 'nd': 'north dakota', 'ne': 'nebraska', 
+            'nm': 'new mexico', 'nv': 'nevada', 'ok': 'oklahoma', 'or': 'oregon', 
+            'sd': 'south dakota', 'tx': 'texas', 'ut': 'utah', 'wa': 'washington', 
+            'wy': 'wyoming'
+        }
+        cliff_regions = ['asia', 'japan', 'china', 'india', 'singapore', 'korea', 'australia']
+        
+        # Check for Cliff states - must be at word boundary
+        import re
+        for abbrev, full_name in cliff_states.items():
+            # Match state abbrev at word boundary (not as part of another word)
+            if re.search(r'(?<![a-z])' + abbrev + r'(?![a-z])', hq_lower):
+                return "cliff"
+            # Match full name with word boundary
+            if re.search(r'\b' + full_name + r'\b', hq_lower):
+                return "cliff"
+        
+        # Check for Cliff regions (Asia, Australia, etc.)
+        for region in cliff_regions:
+            if re.search(r'\b' + region + r'\b', hq_lower):
+                return "cliff"
+        
+        # Clarke's territory (East + Northeast + Southeast + Midwest + DC + International)
+        return "clarke"
+    
+    # Default to clarke if no HQ info
+    return "clarke"
+
+
 def post_to_slack(meeting_data, notion_url, owner_name):
-    """Post meeting info to Slack #gong channel."""
+    """Post meeting info to Slack #test-gong channel."""
     props = meeting_data.get("properties", {})
     
     company = props.get("company", "Unknown")
@@ -331,13 +379,22 @@ def post_to_slack(meeting_data, notion_url, owner_name):
     booking_channel = props.get("booking_channel", "Unknown")
     meeting_name = props.get("hs_appointment_name", "New Buyer Meeting")
     
+    # Get booked by (the owner who created the meeting)
+    booked_by = owner_name if owner_name != "Unknown" else "BDR"
+    
+    # Get AE assignment based on company HQ
+    # Note: HubSpot meeting data may need to include company HQ field
+    # For now, defaulting to clarke until HQ data is available
+    ae_assignment = get_ae_assignment(company)
+    
     message = f"""NEW DISCOVERY CALL BOOKED
 
 Contact: {contact_email.split('@')[0].title()}
 Title: {contact_title}
 Company: {company}
 Email: {contact_email}
-AE: @{owner_name.lower().replace(' ', '.') if owner_name != 'Unknown' else 'team'}
+Booked By: {booked_by}
+AE: @{ae_assignment}
 Source: {booking_channel}
 
 Meeting: {meeting_name}"""
@@ -358,7 +415,7 @@ Meeting: {meeting_name}"""
     response = requests.post(url, headers=headers, json=data)
     
     if response.status_code == 200 and response.json().get("ok"):
-        logger.info("Posted to Slack #gong")
+        logger.info("Posted to Slack #test-gong")
         return True
     else:
         logger.error(f"Failed to post to Slack: {response.text}")

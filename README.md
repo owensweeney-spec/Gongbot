@@ -1,6 +1,6 @@
 # GongBot 3000 - Sales Meeting Automation
 
-This repo documents the setup for automating new meeting notifications to Slack (#gong) and creating Notion meeting notes.
+This repo documents the setup for automating new meeting notifications to Slack (#test-gong) and creating Notion meeting notes.
 
 ## Overview
 
@@ -9,13 +9,13 @@ When a BDR logs a new meeting in HubSpot ("New Buyer Meetings"), this automation
 1. Fetch the meeting from HubSpot
 2. Research the prospect/company
 3. Create a Notion meeting notes page
-4. Post a formatted Gong call announcement to Slack #gong channel
+4. Post a formatted Gong call announcement to Slack #test-gong channel
 
 ## Current Status
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Slack Bot (GongBot 3000) | ✅ Working | Posts to #gong |
+| Slack Bot (GongBot 3000) | ✅ Working | Posts to #test-gong |
 | OpenHands API | ✅ Working | AI processing |
 | Notion API | ✅ Working | Creates pages in L1-Call-Notes-Repo |
 | HubSpot API | ✅ Working | Fetches from object ID 0-421 |
@@ -75,11 +75,11 @@ Reo.Dev Activity: [Activity score and signals]
    |
    | (Creates meeting notes page)
    v
-[Slack #gong] <-- (GongBot 3000 Token)
+[Slack #test-gong] <-- (GongBot 3000 Token)
    |
    | (Posts formatted Gong call)
    v
-[#gong channel)
+[#test-gong channel)
 ```
 
 ## Setup Steps Completed
@@ -87,7 +87,7 @@ Reo.Dev Activity: [Activity score and signals]
 1. ✅ Created Slack app "GongBot 3000"
 2. ✅ Added `chat:write` scope
 3. ✅ Installed app to workspace
-4. ✅ Added bot to #gong channel
+4. ✅ Added bot to #test-gong channel
 5. ✅ Created OpenHands API key
 6. ✅ Created Notion API key
 7. ✅ Created HubSpot service key with scopes
@@ -129,5 +129,5 @@ Add to crontab:
 The script will:
 1. Poll HubSpot every 5 minutes for new "New Buyer Meetings"
 2. Create Notion page with company details
-3. Post to Slack #gong channel
+3. Post to Slack #test-gong channel
 4. Track processed meetings to avoid duplicates
