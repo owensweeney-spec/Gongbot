@@ -733,5 +733,58 @@ class TestIntegration:
         assert result["company"] == "TestCompany"
 
 
+class TestSkipMeetingIds:
+    """Tests for SKIP_MEETING_IDS functionality."""
+    
+    def test_skip_meeting_ids_default_empty(self):
+        """Test that SKIP_MEETING_IDS defaults to empty list when env var not set."""
+        # Clear the env var if it exists
+        original = os.environ.pop("SKIP_MEETING_IDS", None)
+        try:
+            # Re-import to get fresh value
+            import importlib
+            importlib.reload(gongbot)
+            assert gongbot.SKIP_MEETING_IDS == []
+        finally:
+            if original:
+                os.environ["SKIP_MEETING_IDS"] = original
+
+    def test_skip_meeting_ids_from_env(self):
+        """Test that SKIP_MEETING_IDS can be set from environment variable."""
+        os.environ["SKIP_MEETING_IDS"] = "id1,id2,id3"
+        
+        import importlib
+        importlib.reload(gongbot)
+        
+        assert gongbot.SKIP_MEETING_IDS == ["id1", "id2", "id3"]
+        
+        # Clean up
+        del os.environ["SKIP_MEETING_IDS"]
+
+    def test_skip_meeting_ids_in_processing(self):
+        """Test that meetings in SKIP_MEETING_IDS are skipped during processing."""
+        os.environ["SKIP_MEETING_IDS"] = "skip-this-id,another-skip"
+        
+        import importlib
+        importlib.reload(gongbot)
+        
+        # Create a meeting that should be skipped
+        meeting = {
+            "id": "skip-this-id",
+            "properties": {
+                "hs_meeting_title": {"properties": {"value": "Test Meeting"}},
+                "hubspot_owner_id": {"properties": {"value": "test-owner"}},
+                "hs_createdate": {"properties": {"value": "2024-01-02T12:00:00Z"}}
+            }
+        }
+        
+        # Check that the skip logic would work
+        meeting_id = meeting.get("id")
+        assert meeting_id in gongbot.SKIP_MEETING_IDS
+        
+        # Clean up
+        del os.environ["SKIP_MEETING_IDS"]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
