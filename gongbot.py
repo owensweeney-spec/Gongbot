@@ -38,6 +38,10 @@ POLL_INTERVAL_SECONDS = 300  # 5 minutes
 # Use the current working directory for better persistence
 STATE_FILE = os.environ.get("STATE_FILE", "gongbot_state.json")
 
+# Meetings to skip (add meeting IDs here to prevent re-processing after deletion)
+# These IDs were manually deleted from HubSpot but keep getting re-processed
+SKIP_MEETING_IDS = os.environ.get("SKIP_MEETING_IDS", "").split(",") if os.environ.get("SKIP_MEETING_IDS") else []
+
 # Logging
 logging.basicConfig(
     level=logging.INFO,
@@ -482,6 +486,11 @@ def main():
                 
                 # Skip if already in local processed_ids
                 if meeting_id in processed_ids:
+                    continue
+                
+                # Skip meetings in the manual skip list (deleted from HubSpot but still in API results)
+                if meeting_id in SKIP_MEETING_IDS:
+                    logger.info(f"Skipping meeting {meeting_id} (in skip list)")
                     continue
                 
                 # Skip meetings older than 24 hours (safety net for state resets)
