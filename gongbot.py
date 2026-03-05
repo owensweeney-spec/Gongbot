@@ -173,11 +173,13 @@ def research_company(company_name):
 
 def is_meeting_processed(meeting):
     """Check if meeting was already processed by looking for a Notion page with similar name."""
-    if not NOTION_KEY or not NOTION_PARENT_ID:
-        return False
-    
     props = meeting.get("properties", {})
     company = props.get("company", "")
+    logger.info(f"Checking if processed: {company} (NOTION_KEY set: {bool(NOTION_KEY)})")
+    
+    if not NOTION_KEY or not NOTION_PARENT_ID:
+        logger.info(f"No NOTION_KEY or NOTION_PARENT_ID, allowing processing")
+        return False
     
     if not company:
         return False
@@ -409,6 +411,10 @@ def main():
         try:
             # Get new meetings
             meetings = get_hubspot_meetings(since=last_check)
+            logger.info(f"Total meetings from API: {len(meetings)}")
+            for m in meetings:
+                props = m.get("properties", {})
+                logger.info(f"  - {props.get('company', 'N/A')} ({m.get('id')})")
             
             # Filter out already processed (check both local state and Notion)
             new_meetings = []
