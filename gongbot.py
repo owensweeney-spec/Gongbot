@@ -394,6 +394,12 @@ def create_notion_page(meeting_data):
         return None
 
 
+# AE Assignment - map short names to full names
+AE_NAMES = {
+    "clarke": "Clarke Shipley",
+    "cliff": "Cliff Stepp"
+}
+
 def get_ae_assignment(company_name, company_hq=None):
     """Assign AE based on company HQ location.
     
@@ -406,40 +412,41 @@ def get_ae_assignment(company_name, company_hq=None):
         
         # Special case: DC is Clarke territory (not to be confused with "dc" in other words)
         if 'washington' in hq_lower and ('dc' in hq_lower or hq_lower.endswith('dc')):
-            return "clarke"
-        
-        # Cliff's territory (West + Southwest + Plains + Mountain + Asia)
-        cliff_states = {
-            'ak': 'alaska', 'al': 'alabama', 'ar': 'arkansas', 'az': 'arizona', 
-            'ca': 'california', 'co': 'colorado', 'hi': 'hawaii', 'ia': 'iowa', 
-            'id': 'idaho', 'ks': 'kansas', 'la': 'louisiana', 'mo': 'missouri', 
-            'ms': 'mississippi', 'mt': 'montana', 'nd': 'north dakota', 'ne': 'nebraska', 
-            'nm': 'new mexico', 'nv': 'nevada', 'ok': 'oklahoma', 'or': 'oregon', 
-            'sd': 'south dakota', 'tx': 'texas', 'ut': 'utah', 'wa': 'washington', 
-            'wy': 'wyoming'
-        }
-        cliff_regions = ['asia', 'japan', 'china', 'india', 'singapore', 'korea', 'australia']
-        
-        # Check for Cliff states - must be at word boundary
-        import re
-        for abbrev, full_name in cliff_states.items():
-            # Match state abbrev at word boundary (not as part of another word)
-            if re.search(r'(?<![a-z])' + abbrev + r'(?![a-z])', hq_lower):
-                return "cliff"
-            # Match full name with word boundary
-            if re.search(r'\b' + full_name + r'\b', hq_lower):
-                return "cliff"
-        
-        # Check for Cliff regions (Asia, Australia, etc.)
-        for region in cliff_regions:
-            if re.search(r'\b' + region + r'\b', hq_lower):
-                return "cliff"
-        
-        # Clarke's territory (East + Northeast + Southeast + Midwest + DC + International)
-        return "clarke"
+            ae_key = "clarke"
+        else:
+            # Cliff's territory (West + Southwest + Plains + Mountain + Asia)
+            cliff_states = {
+                'ak': 'alaska', 'al': 'alabama', 'ar': 'arkansas', 'az': 'arizona', 
+                'ca': 'california', 'co': 'colorado', 'hi': 'hawaii', 'ia': 'iowa', 
+                'id': 'idaho', 'ks': 'kansas', 'la': 'louisiana', 'mo': 'missouri', 
+                'ms': 'mississippi', 'mt': 'montana', 'nd': 'north dakota', 'ne': 'nebraska', 
+                'nm': 'new mexico', 'nv': 'nevada', 'ok': 'oklahoma', 'or': 'oregon', 
+                'sd': 'south dakota', 'tx': 'texas', 'ut': 'utah', 'wa': 'washington', 
+                'wy': 'wyoming'
+            }
+            cliff_regions = ['asia', 'japan', 'china', 'india', 'singapore', 'korea', 'australia']
+            
+            # Check for Cliff states - must be at word boundary
+            import re
+            ae_key = "clarke"  # default
+            for abbrev, full_name in cliff_states.items():
+                if re.search(r'(?<![a-z])' + abbrev + r'(?![a-z])', hq_lower):
+                    ae_key = "cliff"
+                    break
+                if re.search(r'\b' + full_name + r'\b', hq_lower):
+                    ae_key = "cliff"
+                    break
+            
+            # Check for Cliff regions
+            if ae_key == "clarke":
+                for region in cliff_regions:
+                    if re.search(r'\b' + region + r'\b', hq_lower):
+                        ae_key = "cliff"
+                        break
+    else:
+        ae_key = "clarke"
     
-    # Default to clarke if no HQ info
-    return "clarke"
+    return AE_NAMES.get(ae_key, "Clarke Shipley")
 
 
 def post_to_slack(meeting_data, notion_url, owner_name, research=None):
