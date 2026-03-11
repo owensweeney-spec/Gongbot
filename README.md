@@ -6,8 +6,8 @@ This repo documents the setup for automating new meeting notifications to Slack 
 
 When a BDR logs a new meeting in HubSpot ("New Buyer Meetings"), this automation will:
 
-1. Fetch the meeting from HubSpot
-2. Research the prospect/company
+1. Fetch the meeting from HubSpot (polls every 5 minutes)
+2. Research the prospect/company with LLM *(not yet implemented)*
 3. Create a Notion meeting notes page
 4. Post a formatted Gong call announcement to Slack #test-gong channel
 
@@ -16,23 +16,63 @@ When a BDR logs a new meeting in HubSpot ("New Buyer Meetings"), this automation
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Slack Bot (GongBot 3000) | ✅ Working | Posts to #test-gong |
-| OpenHands API | ✅ Working | AI processing |
 | Notion API | ✅ Working | Creates pages in L1-Call-Notes-Repo |
 | HubSpot API | ✅ Working | Fetches from object ID 0-421 |
-| Automation Script | ✅ Ready | Polls every 5 minutes |
+| Render Hosting | ✅ Running | https://gongbot-e15s.onrender.com |
+| GitHub Action (Wake-up) | ✅ Running | Pings Render every 5 minutes |
+| LLM Company Research | ❌ Not Implemented | Placeholder only - needs integration |
+
+## Architecture
+
+```
+[HubSpot: New Buyer Meeting]
+        |
+        | (polls every 5 min)
+        v
+[Render: GongBot 3000] ----> [LLM: Company Research] *(not implemented)*
+        |
+        | (creates page)
+        v
+[Notion: L1-Call-Notes-Repo]
+        |
+        | (posts message)
+        v
+[Slack: #test-gong]
+```
+
+## Hosting
+
+### Render (Primary)
+- **URL**: https://gongbot-e15s.onrender.com
+- **Status**: Running 24/7
+- **Wake-up**: GitHub Action pings every 5 minutes to prevent sleep
+
+### GitHub Action (Keep-Awake)
+- Location: `.github/workflows/keep-awake.yml`
+- Runs every 5 minutes to ping Render
+- Prevents Render's free tier from putting service to sleep
 
 ## API Keys & Tokens
 
-Set these as environment variables (do not hardcode):
+Set these as environment variables in Render:
+
+| Variable | Description |
+|----------|-------------|
+| `HUBSPOT_KEY` | HubSpot private app access token |
+| `NOTION_KEY` | Notion integration token (`ntn_...`) |
+| `NOTION_PARENT_ID` | Notion page/database ID for meeting notes |
+| `SLACK_KEY` | Slack bot token (`xoxb-...`) |
+| `PORT` | Render port (usually 10000) |
 
 ## To Do
 
-### Blocked
-- [ ] Enable API access for "New Buyer Meetings" custom object in HubSpot (needs object creator)
+### High Priority
+- [ ] Integrate LLM for company/prospect research (currently stub only)
 
 ### Future Enhancements
+- [ ] Add HubSpot webhook for real-time meeting detection (vs polling)
 - [ ] Set up Slack Workflow or Event Subscriptions for GongBot to auto-trigger
-- [ ] Add HubSpot webhook for real-time meeting detection
+- [ ] Add company employee count detection for SMB vs Enterprise template selection
 
 ## Gong Post Format
 
@@ -40,76 +80,40 @@ Set these as environment variables (do not hardcode):
 NEW DISCOVERY CALL BOOKED
 
 Contact: [Name]
-[LinkedIn URL]
 Company: [Company Name]
 Title: [Title]
-HQ Location: [Location]
-Company Dev Count: [Count]
+Email: [Email]
+Booked By: [BDR Name]
 AE: @[AE Name]
-Source: [Source] (@[Person]) :taco:
-Channel: LinkedIn
-Meeting Scheduled: [Date]
-Company Summary: [Company description]
-Pain / Interest: [Pain points]
-Reo.Dev Activity: [Activity score and signals]
+Source: [Booking Channel]
+
+Meeting: [Meeting Name]
+
+Notes: [Notion Page URL]
 ```
 
 ## Notion Page Format
 
 - **Title**: `L1 (Company Name) <> OpenHands`
 - **Location**: L1-Call-Notes-Repo folder
-- **Template**: SMB/MM (Light) or Enterprise (Heavy) - selected based on company size
-
-## Architecture
-
-```
-[HubSpot]
-   |
-   | (Logs new "New Buyer Meeting")
-   v
-[OpenHands] <-- (API Key)
-   |
-   | (Fetches meeting details)
-   v
-[Notion] <-- (API Key)
-   |
-   | (Creates meeting notes page)
-   v
-[Slack #test-gong] <-- (GongBot 3000 Token)
-   |
-   | (Posts formatted Gong call)
-   v
-[#test-gong channel)
-```
-
-## Setup Steps Completed
-
-1. ✅ Created Slack app "GongBot 3000"
-2. ✅ Added `chat:write` scope
-3. ✅ Installed app to workspace
-4. ✅ Added bot to #test-gong channel
-5. ✅ Created OpenHands API key
-6. ✅ Created Notion API key
-7. ✅ Created HubSpot service key with scopes
-8. ✅ Verified Notion access to L1-Call-Notes-Repo
-9. ✅ Tested Slack posting
-10. ✅ Tested OpenHands API
-11. ✅ Tested Notion API
-
-## Notes
-
-- The "New Buyer Meetings" custom object in HubSpot uses object ID `0-421`
-- Standard HubSpot Meetings object works but includes pipeline meetings (not just net new)
+- **Template**: Draft format with meeting details
 
 ## Running the Automation
 
-### Option 1: Local Run
+### Production (Render)
+The bot runs automatically on Render. No manual setup needed.
+
+### Local Development
 ```bash
 pip install requests
+export HUBSPOT_KEY="pat-na1-..."
+export NOTION_KEY="ntn_..."
+export NOTION_PARENT_ID="..."
+export SLACK_KEY="xoxb-..."
 python gongbot.py
 ```
 
-### Option 2: Docker Run
+### Docker Run
 ```bash
 docker run -d \
   --name gongbot \
@@ -120,14 +124,9 @@ docker run -d \
   sh -c "pip install requests && python /gongbot.py"
 ```
 
-### Option 3: Cron Job
-Add to crontab:
-```bash
-*/5 * * * * /usr/bin/python3 /path/to/gongbot.py >> /var/log/gongbot.log 2>&1
-```
+## Notes
 
-The script will:
-1. Poll HubSpot every 5 minutes for new "New Buyer Meetings"
-2. Create Notion page with company details
-3. Post to Slack #test-gong channel
-4. Track processed meetings to avoid duplicates
+- The "New Buyer Meetings" custom object in HubSpot uses object ID `0-421`
+- Polling interval is 5 minutes (300 seconds)
+- Meetings older than 24 hours are automatically skipped
+- Duplicate meetings are prevented via local state file and Notion page check

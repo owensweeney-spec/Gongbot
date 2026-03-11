@@ -1,0 +1,23 @@
+name: Keep Render Awake
+
+on:
+  schedule:
+    # Run every 5 minutes to keep Render service awake
+    # Cron syntax: minute hour day-of-month month day-of-week
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    # Allow manual triggering
+
+jobs:
+  ping-render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render service
+        run: |
+          # Replace with your actual Render service URL
+          # You can set RENDER_URL in repo secrets for security
+          RENDER_URL="${RENDER_URL:-https://gongbot-e15s.onrender.com}"
+          echo "Pinging $RENDER_URL..."
+          curl -s -o /dev/null -w "%{http_code}" "$RENDER_URL"
+        env:
+          RENDER_URL: ${{ secrets.RENDER_URL }}
