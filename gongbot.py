@@ -397,7 +397,7 @@ def create_notion_page(meeting_data):
 # AE Assignment - map short names to full names
 AE_NAMES = {
     "clarke": "Clarke Shipley",
-    "cliff": "Cliff Stepp"
+    "cliff": "Cliff Yang"
 }
 
 def get_ae_assignment(company_name, company_hq=None):
