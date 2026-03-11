@@ -2,9 +2,9 @@ name: Keep Render Awake
 
 on:
   schedule:
-    # Run every 5 minutes to keep Render service awake
+    # Run every 3 minutes to keep Render service awake
     # Cron syntax: minute hour day-of-month month day-of-week
-    - cron: '*/5 * * * *'
+    - cron: '*/3 * * * *'
   workflow_dispatch:
     # Allow manual triggering
 
