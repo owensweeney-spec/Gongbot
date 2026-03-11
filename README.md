@@ -62,6 +62,7 @@ Set these as environment variables in Render:
 | `NOTION_KEY` | Notion integration token (`ntn_...`) |
 | `NOTION_PARENT_ID` | Notion page/database ID for meeting notes |
 | `SLACK_KEY` | Slack bot token (`xoxb-...`) |
+| `OPENAI_KEY` | OpenAI API key for company research (`sk-...`) |
 | `PORT` | Render port (usually 10000) |
 
 ## To Do

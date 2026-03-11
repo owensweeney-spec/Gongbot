@@ -12,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import requests
+from openai import OpenAI
 
 # ============================================================================
 # CONFIGURATION
@@ -29,6 +30,9 @@ NOTION_PARENT_ID = os.environ.get("NOTION_PARENT_ID", "")  # L1-Call-Notes-Repo
 # Slack
 SLACK_KEY = os.environ.get("SLACK_KEY", "")
 SLACK_CHANNEL = "test-gong"
+
+# OpenAI for company research
+OPENAI_KEY = os.environ.get("OPENAI_KEY", "")
 
 # Polling
 POLL_INTERVAL_SECONDS = 300  # 5 minutes
@@ -164,14 +168,72 @@ def get_owner_name(owner_id):
     return "Unknown"
 
 
-def research_company(company_name):
-    """Research company using Tavily."""
-    # This is a simplified version - in production you'd use the actual Tavily API
-    # For now, return a placeholder that triggers OpenHands AI research
-    return {
-        "needs_research": True,
-        "company": company_name
-    }
+def research_company(company_name, contact_name="", contact_title=""):
+    """Research company and contact using OpenAI."""
+    if not OPENAI_KEY:
+        logger.info("No OPENAI_KEY set, skipping research")
+        return {
+            "company": company_name,
+            "company_hq": "",
+            "company_dev_count": "",
+            "company_summary": "",
+            "contact_background": "",
+            "pain_interest": ""
+        }
+    
+    try:
+        client = OpenAI(api_key=OPENAI_KEY)
+        
+        # Build research query
+        research_query = f"""Research {company_name}"""
+        if contact_name:
+            research_query += f" and their contact {contact_name}"
+        if contact_title:
+            research_query += f" who is a {contact_title}"
+        
+        research_query += """.
+
+Provide a JSON response with these fields:
+- hq_location: Company headquarters location (city, state/country)
+- dev_count: Estimated number of software developers/engineers at the company (e.g., "50-100", "500+", "10-20")
+- company_summary: 2-3 sentence summary of what the company does, their industry, and key products
+- contact_background: 1-2 sentences about the contact's background based on their title and company
+- pain_points: 1-2 potential pain points or interests related to developer tools, API access, or developer experience
+
+If you cannot find information for a field, leave it blank."""
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a research assistant. Provide accurate, concise information. If you cannot find information, say so honestly."},
+                {"role": "user", "content": research_query}
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=500
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        
+        logger.info(f"Research complete for {company_name}")
+        return {
+            "company": company_name,
+            "company_hq": result.get("hq_location", ""),
+            "company_dev_count": result.get("dev_count", ""),
+            "company_summary": result.get("company_summary", ""),
+            "contact_background": result.get("contact_background", ""),
+            "pain_interest": result.get("pain_points", "")
+        }
+        
+    except Exception as e:
+        logger.error(f"Error researching company: {e}")
+        return {
+            "company": company_name,
+            "company_hq": "",
+            "company_dev_count": "",
+            "company_summary": "",
+            "contact_background": "",
+            "pain_interest": ""
+        }
 
 
 
@@ -380,7 +442,7 @@ def get_ae_assignment(company_name, company_hq=None):
     return "clarke"
 
 
-def post_to_slack(meeting_data, notion_url, owner_name):
+def post_to_slack(meeting_data, notion_url, owner_name, research=None):
     """Post meeting info to Slack #test-gong channel."""
     props = meeting_data.get("properties", {})
     
@@ -390,28 +452,60 @@ def post_to_slack(meeting_data, notion_url, owner_name):
     booking_channel = props.get("booking_channel", "Unknown")
     meeting_name = props.get("hs_appointment_name", "New Buyer Meeting")
     
+    # Extract contact name from email
+    contact_name = contact_email.split('@')[0].title().replace('.', ' ')
+    
     # Get booked by (the owner who created the meeting)
     booked_by = owner_name if owner_name != "Unknown" else "BDR"
     
+    # Get research data or use defaults
+    if research is None:
+        research = {
+            "company_hq": "",
+            "company_dev_count": "",
+            "company_summary": "",
+            "contact_background": "",
+            "pain_interest": ""
+        }
+    
+    # Build LinkedIn URL (try to construct from email domain or name)
+    linkedin_url = ""
+    
     # Get AE assignment based on company HQ
-    # Note: HubSpot meeting data may need to include company HQ field
-    # For now, defaulting to clarke until HQ data is available
-    ae_assignment = get_ae_assignment(company)
+    ae_assignment = get_ae_assignment(company, research.get("company_hq", ""))
+    
+    # Format meeting date
+    meeting_start = props.get("hs_appointment_start", "")
+    meeting_date = ""
+    if meeting_start:
+        try:
+            dt = datetime.fromisoformat(meeting_start.replace('Z', '+00:00'))
+            meeting_date = dt.strftime("%B %d, %Y at %I:%M %p UTC")
+        except:
+            meeting_date = meeting_start
     
     message = f"""NEW DISCOVERY CALL BOOKED
+Contact: {contact_name} (https://www.linkedin.com/search/results/all/?keywords={contact_name.replace(' ', '%20')})"""
+    
+    # Add fields
+    message += f"""
 
-Contact: {contact_email.split('@')[0].title()}
-Title: {contact_title}
-Company: {company}
-Email: {contact_email}
-Booked By: {booked_by}
-AE: @{ae_assignment}
-Source: {booking_channel}
-
-Meeting: {meeting_name}"""
+• Company: {company}
+• Title: {contact_title}
+• HQ Location: {research.get('company_hq', '')}
+• Company Dev Count: {research.get('company_dev_count', '')}
+• Source: {booked_by}
+• Channel: {booking_channel}
+• Meeting Scheduled: {meeting_date}
+• Company Summary: {research.get('company_summary', '')}
+• Contact Background: {research.get('contact_background', '')}
+• Pain / Interest: {research.get('pain_interest', '')}"""
     
     if notion_url:
         message += f"\n\nNotes: {notion_url}"
+    
+    # Add AE assignment at the end
+    message += f"\n\nAE: @{ae_assignment}"
     
     url = "https://slack.com/api/chat.postMessage"
     headers = {
@@ -444,6 +538,7 @@ def process_meeting(meeting):
     
     company = props.get("company", "Unknown")
     contact_email = props.get("contact_email", "Unknown")
+    contact_title = props.get("contact_title", "")
     owner_id = props.get("hs_created_by_user_id")
     
     logger.info(f"Processing meeting: {company} - {contact_email}")
@@ -451,14 +546,17 @@ def process_meeting(meeting):
     # Get owner name
     owner_name = get_owner_name(owner_id)
     
-    # Research company (placeholder - would integrate with Tavily/OpenHands AI)
-    research_company(company)
+    # Extract contact name from email for research
+    contact_name = contact_email.split('@')[0].title().replace('.', ' ')
+    
+    # Research company using OpenAI
+    research = research_company(company, contact_name, contact_title)
     
     # Create Notion page
     notion_url = create_notion_page(meeting)
     
-    # Post to Slack
-    post_to_slack(meeting, notion_url, owner_name)
+    # Post to Slack with research data
+    post_to_slack(meeting, notion_url, owner_name, research)
     
     logger.info(f"Completed processing: {meeting_id}")
     return True
