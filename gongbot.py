@@ -494,8 +494,7 @@ Contact: {contact_name} (https://www.linkedin.com/search/results/all/?keywords={
 • Title: {contact_title}
 • HQ Location: {research.get('company_hq', '')}
 • Company Dev Count: {research.get('company_dev_count', '')}
-• Source: {booked_by}
-• Channel: {booking_channel}
+• Source: {booking_channel}
 • Meeting Scheduled: {meeting_date}
 • Company Summary: {research.get('company_summary', '')}
 • Contact Background: {research.get('contact_background', '')}
