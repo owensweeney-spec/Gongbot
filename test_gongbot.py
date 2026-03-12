@@ -837,11 +837,17 @@ class TestIntegration:
         assert len(new_meetings) == 1
         mock_process.assert_called_once()
 
-    def test_research_company(self):
-        """Test company research function."""
-        result = gongbot.research_company("TestCompany")
-        assert result["needs_research"] == True
-        assert result["company"] == "TestCompany"
+    def test_research_company_no_key(self):
+        """Test company research function when OPENAI_KEY is not set."""
+        # When OPENAI_KEY is not set, should return empty values
+        with patch.object(gongbot, 'OPENAI_KEY', ''):
+            result = gongbot.research_company("TestCompany")
+            assert result["company"] == "TestCompany"
+            assert result["company_hq"] == ""
+            assert result["company_dev_count"] == ""
+            assert result["company_summary"] == ""
+            assert result["contact_background"] == ""
+            assert result["pain_interest"] == ""
 
 
 class TestSkipMeetingIds:
