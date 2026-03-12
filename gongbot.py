@@ -178,8 +178,52 @@ def get_owner_name(owner_id):
     return "Unknown"
 
 
+def get_contact_by_email(email):
+    """Look up contact in HubSpot by email to get full name."""
+    if not email or not HUBSPOT_KEY:
+        return None, None
+    
+    url = "https://api.hubapi.com/crm/v3/objects/contacts/search"
+    headers = {
+        "Authorization": f"Bearer {HUBSPOT_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json={
+            "filterGroups": [{
+                "filters": [{
+                    "propertyName": "email",
+                    "operator": "EQ",
+                    "value": email
+                }]
+            }],
+            "properties": ["firstname", "lastname", "jobtitle"]
+        })
+        
+        if response.status_code == 200:
+            data = response.json()
+            results = data.get("results", [])
+            if results:
+                contact = results[0]
+                props = contact.get("properties", {})
+                first_name = props.get("firstname", "") or ""
+                last_name = props.get("lastname", "") or ""
+                full_name = f"{first_name} {last_name}".strip()
+                job_title = props.get("jobtitle", "") or ""
+                logger.info(f"Found contact in HubSpot: {full_name}, title: {job_title}")
+                return full_name, job_title
+    except Exception as e:
+        logger.error(f"Error looking up contact: {e}")
+    
+    return None, None
+
+
 def research_company(company_name, contact_name="", contact_title=""):
     """Research company and contact using OpenAI."""
+    logger.info(f"Starting research for company: {company_name}, contact: {contact_name}, title: {contact_title}")
+    logger.info(f"OPENAI_KEY set: {bool(OPENAI_KEY)}, starts with: {OPENAI_KEY[:10] if OPENAI_KEY else 'NOT SET'}")
+    
     if not OPENAI_KEY:
         logger.info("No OPENAI_KEY set, skipping research")
         return {
@@ -225,6 +269,7 @@ If you cannot find information for a field, leave it blank."""
         result = json.loads(response.choices[0].message.content)
         
         logger.info(f"Research complete for {company_name}")
+        logger.info(f"Research result: {result}")
         return {
             "company": company_name,
             "company_hq": result.get("hq_location", ""),
@@ -288,7 +333,7 @@ def is_meeting_processed(meeting):
     return False
 
 
-def create_notion_page(meeting_data):
+def create_notion_page(meeting_data, research=None, contact_name_override=None):
     """Create a Notion page with meeting details."""
     props = meeting_data.get("properties", {})
     
@@ -297,6 +342,26 @@ def create_notion_page(meeting_data):
     contact_title = props.get("contact_title", "")
     booking_channel = props.get("booking_channel", "Unknown")
     meeting_name = props.get("hs_appointment_name", "New Buyer Meeting")
+    
+    # Get contact name from override or look up in HubSpot
+    if contact_name_override:
+        contact_name = contact_name_override
+    else:
+        lookup = get_contact_by_email(contact_email)
+        if lookup[0]:
+            contact_name = lookup[0]
+        else:
+            contact_name = contact_email.split('@')[0].title().replace('.', ' ')
+    
+    # Default research if not provided
+    if research is None:
+        research = {
+            "company_hq": "",
+            "company_dev_count": "",
+            "company_summary": "",
+            "contact_background": "",
+            "pain_interest": ""
+        }
     
     # Determine if enterprise (simplified - could check employee count)
     is_enterprise = True  # Assume enterprise unless SMB
@@ -328,7 +393,7 @@ def create_notion_page(meeting_data):
         {
             "object": "block",
             "type": "paragraph",
-            "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"Contact: {contact_email} ({contact_title})"}}]}
+            "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"Contact: {contact_name} ({contact_email}) - {contact_title}"}}]}
         },
         {
             "object": "block",
@@ -348,7 +413,27 @@ def create_notion_page(meeting_data):
         {
             "object": "block",
             "type": "paragraph",
-            "paragraph": {"rich_text": [{"type": "text", "text": {"content": "[AI Research - Pending]"}}]}
+            "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"HQ Location: {research.get('company_hq', 'Unknown')}"}}]}
+        },
+        {
+            "object": "block",
+            "type": "paragraph",
+            "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"Dev Count: {research.get('company_dev_count', 'Unknown')}"}}]}
+        },
+        {
+            "object": "block",
+            "type": "paragraph",
+            "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"Company Summary: {research.get('company_summary', 'N/A')}"}}]}
+        },
+        {
+            "object": "block",
+            "type": "paragraph",
+            "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"Contact Background: {research.get('contact_background', 'N/A')}"}}]}
+        },
+        {
+            "object": "block",
+            "type": "paragraph",
+            "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"Pain Points / Interests: {research.get('pain_interest', 'N/A')}"}}]}
         }
     ]
     
@@ -415,7 +500,53 @@ def get_ae_assignment(company_name, company_hq=None):
     
     Clarke: East + Northeast + Southeast + Midwest + DC + International (Europe/Brazil)
     Cliff: West + Southwest + Plains + Mountain + Asia
+    
+    When HQ is unknown, we default to Cliff (Cliff Yang) because most tech companies
+    (Cisco, Google, Apple, Meta, etc.) are West Coast. This can be overridden by
+    adding company-specific overrides below.
     """
+    # Known company HQ overrides - add companies here if you know their HQ
+    KNOWN_COMPANY_HQ = {
+        "cisco": "san jose, ca",
+        "google": "mountain view, ca",
+        "apple": "cupertino, ca",
+        "meta": "menlo park, ca",
+        "microsoft": "redmond, wa",
+        "amazon": "seattle, wa",
+        "salesforce": "san francisco, ca",
+        "oracle": "austin, tx",
+        "ibm": "armonk, ny",
+        "intel": "santa clara, ca",
+        "nvidia": "santa clara, ca",
+        "adobe": "san jose, ca",
+        "netflix": "los gatos, ca",
+        "uber": "san francisco, ca",
+        "airbnb": "san francisco, ca",
+        "stripe": "san francisco, ca",
+        "shopify": "ottawa, canada",
+        "slack": "san francisco, ca",
+        "zoom": "san jose, ca",
+        "palo alto networks": "santa clara, ca",
+        "service now": "san diego, ca",
+        "workday": "pleasanton, ca",
+        "vmware": "palo alto, ca",
+        "salesforce": "san francisco, ca",
+    }
+    
+    # If HQ is empty, try to find company in known list
+    if not company_hq:
+        company_lower = company_name.lower()
+        for known_company, known_hq in KNOWN_COMPANY_HQ.items():
+            if known_company in company_lower or company_lower in known_company:
+                company_hq = known_hq
+                logger.info(f"Found known company HQ for {company_name}: {company_hq}")
+                break
+    
+    # If we still don't have HQ, default to Cliff (most tech companies are West Coast)
+    if not company_hq:
+        logger.info(f"Unknown HQ for {company_name}, defaulting to Cliff (West Coast)")
+        return AE_NAMES.get("cliff", "Cliff Yang")
+    
     # If we have HQ location, use it for routing
     if company_hq:
         hq_lower = company_hq.lower()
@@ -453,13 +584,11 @@ def get_ae_assignment(company_name, company_hq=None):
                     if re.search(r'\b' + region + r'\b', hq_lower):
                         ae_key = "cliff"
                         break
-    else:
-        ae_key = "clarke"
     
     return AE_NAMES.get(ae_key, "Clarke Shipley")
 
 
-def post_to_slack(meeting_data, notion_url, owner_name, research=None):
+def post_to_slack(meeting_data, notion_url, owner_name, research=None, contact_name_override=None):
     """Post meeting info to Slack #test-gong channel."""
     props = meeting_data.get("properties", {})
     
@@ -469,8 +598,16 @@ def post_to_slack(meeting_data, notion_url, owner_name, research=None):
     booking_channel = props.get("booking_channel", "Unknown")
     meeting_name = props.get("hs_appointment_name", "New Buyer Meeting")
     
-    # Extract contact name from email
-    contact_name = contact_email.split('@')[0].title().replace('.', ' ')
+    # Use contact name from override or extract from email
+    if contact_name_override:
+        contact_name = contact_name_override
+    else:
+        # Try to look up contact in HubSpot first
+        lookup = get_contact_by_email(contact_email)
+        if lookup[0]:
+            contact_name = lookup[0]
+        else:
+            contact_name = contact_email.split('@')[0].title().replace('.', ' ')
     
     # Get booked by (the owner who created the meeting)
     booked_by = owner_name if owner_name != "Unknown" else "BDR"
@@ -485,8 +622,9 @@ def post_to_slack(meeting_data, notion_url, owner_name, research=None):
             "pain_interest": ""
         }
     
-    # Build LinkedIn URL (try to construct from email domain or name)
-    linkedin_url = ""
+    # Build LinkedIn URL - use people search with name + company filter
+    # This is more likely to find the actual profile than just name search
+    linkedin_search = f"https://www.linkedin.com/search/results/people/?keywords={contact_name.replace(' ', '%20')}&company={company.replace(' ', '%20')}"
     
     # Get AE assignment based on company HQ
     ae_assignment = get_ae_assignment(company, research.get("company_hq", ""))
@@ -502,7 +640,7 @@ def post_to_slack(meeting_data, notion_url, owner_name, research=None):
             meeting_date = meeting_start
     
     message = f"""NEW DISCOVERY CALL BOOKED
-Contact: {contact_name} (https://www.linkedin.com/search/results/all/?keywords={contact_name.replace(' ', '%20')})"""
+Contact: {contact_name} ({linkedin_search})"""
     
     # Add fields
     message += f"""
@@ -562,17 +700,25 @@ def process_meeting(meeting):
     # Get owner name
     owner_name = get_owner_name(owner_id)
     
-    # Extract contact name from email for research
-    contact_name = contact_email.split('@')[0].title().replace('.', ' ')
+    # Look up contact in HubSpot to get full name and accurate title
+    contact_lookup = get_contact_by_email(contact_email)
+    if contact_lookup[0]:  # full_name found
+        contact_name = contact_lookup[0]
+        # Use HubSpot title if meeting title is empty
+        if not contact_title and contact_lookup[1]:
+            contact_title = contact_lookup[1]
+    else:
+        # Fallback: extract from email
+        contact_name = contact_email.split('@')[0].title().replace('.', ' ')
     
     # Research company using OpenAI
     research = research_company(company, contact_name, contact_title)
     
-    # Create Notion page
-    notion_url = create_notion_page(meeting)
+    # Create Notion page with research data
+    notion_url = create_notion_page(meeting, research, contact_name_override=contact_name)
     
     # Post to Slack with research data
-    post_to_slack(meeting, notion_url, owner_name, research)
+    post_to_slack(meeting, notion_url, owner_name, research, contact_name_override=contact_name)
     
     logger.info(f"Completed processing: {meeting_id}")
     return True
