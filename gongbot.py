@@ -139,6 +139,16 @@ def get_hubspot_meetings(since=None):
     
     results = all_results
     
+    # Deduplicate meetings by ID (regular + archived API calls can return same meeting)
+    seen_ids = set()
+    unique_results = []
+    for r in results:
+        meeting_id = r.get("id")
+        if meeting_id not in seen_ids:
+            seen_ids.add(meeting_id)
+            unique_results.append(r)
+    results = unique_results
+    
     # Filter to meetings created since last check
     if since:
         # Normalize dates for comparison (handle Z and +00:00)

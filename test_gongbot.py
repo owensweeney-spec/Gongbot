@@ -113,7 +113,7 @@ class TestHubSpotAPI:
         """Test fetching meetings with data.
         
         Note: The code makes two API calls (regular + archived), 
-        so results are duplicated in the mock. This test verifies that behavior.
+        but results should be deduplicated by meeting ID.
         """
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -133,16 +133,58 @@ class TestHubSpotAPI:
         mock_get.return_value = mock_response
         
         result = gongbot.get_hubspot_meetings()
-        # Code makes two API calls (regular + archived), so results duplicated
-        assert len(result) == 2
+        # Results should be deduplicated - only 1 unique meeting
+        assert len(result) == 1
         assert result[0]["properties"]["company"] == "TestCompany"
+
+    @patch("gongbot.requests.get")
+    def test_get_hubspot_meetings_deduplicates_duplicates(self, mock_get):
+        """Test that duplicate meetings from regular + archived API calls are deduplicated."""
+        # First call returns regular meetings
+        mock_response_regular = MagicMock()
+        mock_response_regular.json.return_value = {
+            "results": [
+                {
+                    "id": "123",
+                    "properties": {
+                        "company": "TestCompany",
+                        "contact_email": "test@test.com"
+                    }
+                }
+            ],
+            "paging": {}
+        }
+        mock_response_regular.raise_for_status = MagicMock()
+        
+        # Second call returns archived meetings (same meeting!)
+        mock_response_archived = MagicMock()
+        mock_response_archived.json.return_value = {
+            "results": [
+                {
+                    "id": "123",  # Same ID!
+                    "properties": {
+                        "company": "TestCompany",
+                        "contact_email": "test@test.com"
+                    }
+                }
+            ],
+            "paging": {}
+        }
+        mock_response_archived.raise_for_status = MagicMock()
+        
+        mock_get.side_effect = [mock_response_regular, mock_response_archived]
+        
+        result = gongbot.get_hubspot_meetings()
+        # Should have only 1 result (deduplicated), not 2
+        assert len(result) == 1
+        assert result[0]["id"] == "123"
 
     @patch("gongbot.requests.get")
     def test_get_hubspot_meetings_with_since_filter(self, mock_get):
         """Test filtering meetings by date.
         
         Note: The code makes two API calls (regular + archived),
-        so each meeting appears twice in results.
+        but results should be deduplicated.
         """
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -170,11 +212,10 @@ class TestHubSpotAPI:
         since = "2024-01-01T00:00:00+00:00"
         result = gongbot.get_hubspot_meetings(since=since)
         
-        # Due to duplicate calls, we get 2 results (same meeting twice)
-        # Filter correctly keeps only NewCompany (appears twice)
-        assert len(result) == 2
-        # Both should be NewCompany since OldCompany is filtered out
-        assert all(r["properties"]["company"] == "NewCompany" for r in result)
+        # Results should be deduplicated - only 1 unique meeting after filter
+        assert len(result) == 1
+        # Should be NewCompany since OldCompany is filtered out
+        assert result[0]["properties"]["company"] == "NewCompany"
 
     @patch("gongbot.requests.get")
     def test_get_owner_name_success(self, mock_get):
@@ -669,8 +710,8 @@ class TestEdgeCases:
 
     @patch("gongbot.requests.get")
     def test_pagination_handling(self, mock_get):
-        """Test that pagination is handled correctly."""
-        # First call returns page 1 with next link
+        """Test that pagination is handled correctly with deduplication."""
+        # First call returns page 1 with next link (regular meetings)
         mock_response_1 = MagicMock()
         mock_response_1.json.return_value = {
             "results": [{"id": "1", "properties": {"company": "Company1"}}],
@@ -680,7 +721,7 @@ class TestEdgeCases:
         }
         mock_response_1.raise_for_status = MagicMock()
         
-        # Second call returns page 2 with no next link
+        # Second call returns page 2 with no next link (regular meetings)
         mock_response_2 = MagicMock()
         mock_response_2.json.return_value = {
             "results": [{"id": "2", "properties": {"company": "Company2"}}],
@@ -688,12 +729,30 @@ class TestEdgeCases:
         }
         mock_response_2.raise_for_status = MagicMock()
         
-        mock_get.side_effect = [mock_response_1, mock_response_2, mock_response_1, mock_response_2]
+        # Third call returns page 1 with next link (archived meetings)
+        mock_response_3 = MagicMock()
+        mock_response_3.json.return_value = {
+            "results": [{"id": "3", "properties": {"company": "Company3"}}],
+            "paging": {
+                "next": {"link": "https://api.hubapi.com/crm/v3/objects/0-421?after=abc123"}
+            }
+        }
+        mock_response_3.raise_for_status = MagicMock()
+        
+        # Fourth call returns page 2 with no next link (archived meetings)
+        mock_response_4 = MagicMock()
+        mock_response_4.json.return_value = {
+            "results": [{"id": "4", "properties": {"company": "Company4"}}],
+            "paging": {}
+        }
+        mock_response_4.raise_for_status = MagicMock()
+        
+        mock_get.side_effect = [mock_response_1, mock_response_2, mock_response_3, mock_response_4]
         
         result = gongbot.get_hubspot_meetings()
         
-        # Should have 4 results (2 from first call, 2 from archived call)
-        assert len(result) >= 2
+        # Should have 4 unique results (all different IDs)
+        assert len(result) == 4
 
 
 class TestProcessingLogic:
