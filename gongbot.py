@@ -32,7 +32,7 @@ SLACK_KEY = os.environ.get("SLACK_KEY", "")
 SLACK_CHANNEL = "test-gong"
 
 # OpenAI for company research
-OPENAI_KEY = os.environ.get("OPENAI_KEY", "")
+OPENAI_KEY = os.environ.get("OpenAI_Key", "")
 
 # Polling
 POLL_INTERVAL_SECONDS = 300  # 5 minutes
