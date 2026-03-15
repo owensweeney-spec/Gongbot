@@ -32,7 +32,8 @@ SLACK_KEY = os.environ.get("SLACK_KEY", "")
 SLACK_CHANNEL = "test-gong"
 
 # OpenAI for company research
-OPENAI_KEY = os.environ.get("OpenAI_Key", "")
+# Accept both "OPENAI_KEY" and "OpenAI_Key" for flexibility
+OPENAI_KEY = os.environ.get("OPENAI_KEY") or os.environ.get("OpenAI_Key", "")
 
 # Polling
 POLL_INTERVAL_SECONDS = 300  # 5 minutes
@@ -61,11 +62,19 @@ logger = logging.getLogger(__name__)
 def load_last_check():
     """Load the last check timestamp from file."""
     if Path(STATE_FILE).exists():
-        with open(STATE_FILE, "r") as f:
-            data = json.load(f)
-            # Verify the file has valid data
-            if data.get("last_check"):
-                return data
+        try:
+            with open(STATE_FILE, "r") as f:
+                content = f.read().strip()
+                if not content:
+                    # Empty file - return defaults
+                    raise ValueError("Empty state file")
+                data = json.loads(content)
+                # Verify the file has valid data
+                if data.get("last_check"):
+                    return data
+        except (json.JSONDecodeError, ValueError, IOError) as e:
+            logger.warning(f"Error loading state file: {e}. Starting fresh.")
+    
     # Default: only look for meetings from the last 24 hours on first run
     # This avoids processing old meetings when redeploying
     yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
@@ -293,10 +302,13 @@ If you cannot find information for a field, leave it blank."""
 
 
 def is_meeting_processed(meeting):
-    """Check if meeting was already processed by looking for a Notion page with similar name."""
+    """Check if meeting was already processed by looking for a Notion page with matching company and date."""
     props = meeting.get("properties", {})
     company = props.get("company", "")
-    logger.info(f"Checking if processed: {company} (NOTION_KEY set: {bool(NOTION_KEY)})")
+    meeting_start = props.get("hs_appointment_start", "")
+    meeting_id = meeting.get("id", "")
+    
+    logger.info(f"Checking if processed: {company} (meeting ID: {meeting_id}) (NOTION_KEY set: {bool(NOTION_KEY)})")
     
     if not NOTION_KEY or not NOTION_PARENT_ID:
         logger.info(f"No NOTION_KEY or NOTION_PARENT_ID, allowing processing")
@@ -304,6 +316,15 @@ def is_meeting_processed(meeting):
     
     if not company:
         return False
+    
+    # Extract meeting date for comparison (if available)
+    meeting_date = ""
+    if meeting_start:
+        try:
+            dt = datetime.fromisoformat(meeting_start.replace('Z', '+00:00'))
+            meeting_date = dt.strftime("%Y-%m-%d")
+        except:
+            pass
     
     # Search Notion for a page with this company name
     url = "https://api.notion.com/v1/search"
@@ -315,18 +336,47 @@ def is_meeting_processed(meeting):
     data = {
         "query": company,
         "filter": {"property": "object", "value": "page"},
-        "page_size": 5
+        "page_size": 10
     }
     
     try:
         response = requests.post(url, headers=headers, json=data)
         if response.status_code == 200:
             results = response.json().get("results", [])
-            # Check if any page is in our parent database
+            # Check if any page is in our parent database AND matches the meeting date
             for page in results:
                 if page.get("parent", {}).get("database_id") == NOTION_PARENT_ID:
-                    logger.info(f"Found existing Notion page for {company}, skipping")
-                    return True
+                    # Get page title to check date
+                    page_title = ""
+                    properties = page.get("properties", {})
+                    if "title" in properties:
+                        page_title = properties["title"].get("title", [{}])[0].get("text", {}).get("content", "")
+                    
+                    # If we have a meeting date, check if page was created today
+                    # Page titles are like "[DRAFT] L1 Cisco <> OpenHands" - no date info
+                    # So we need a different approach: check if page was created recently
+                    # Get page creation time
+                    created_time = page.get("created_time", "")
+                    page_date = ""
+                    if created_time:
+                        try:
+                            dt = datetime.fromisoformat(created_time.replace('Z', '+00:00'))
+                            page_date = dt.strftime("%Y-%m-%d")
+                        except:
+                            pass
+                    
+                    # If page was created TODAY (or we don't know date), check if it's a duplicate
+                    # We'll allow pages from today to be processed as potential duplicates
+                    # but pages from other days are likely different meetings
+                    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                    
+                    if page_date == today or not page_date:
+                        # Same day - this is likely a duplicate, skip
+                        logger.info(f"Found existing Notion page for {company} created today, skipping")
+                        return True
+                    else:
+                        # Different day - this is a different meeting, allow processing
+                        logger.info(f"Found existing Notion page for {company} from {page_date}, allowing (different meeting)")
     except Exception as e:
         logger.warning(f"Error checking Notion: {e}")
     
